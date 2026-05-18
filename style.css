@@ -1,0 +1,305 @@
+/* ───────────────────────────────────────────
+   전역 변수 & 기본
+─────────────────────────────────────────── */
+:root {
+    --font-default: "Pretendard", "Noto Sans JP",
+        -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --radius: 16px;
+}
+
+body {
+    font-family: var(--font-default);
+}
+
+/* ───────────────────────────────────────────
+   스크롤바 숨김
+─────────────────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* ───────────────────────────────────────────
+   프리뷰 박스 (captureArea)
+─────────────────────────────────────────── */
+.rect-box {
+    width: 1000px;
+    height: 520px;
+    flex-shrink: 0;
+    background: white;
+}
+
+/* ───────────────────────────────────────────
+   Range Slider 공통
+─────────────────────────────────────────── */
+input[type="range"] {
+    -webkit-appearance: none;
+    background: #eee;
+    border-radius: 999px;
+    height: 8px;
+    width: 100%;
+    cursor: pointer;
+    outline: none;
+}
+
+.slider-a::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--thumb-a) !important;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,.2);
+}
+
+.slider-b::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--thumb-b) !important;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,.2);
+}
+
+/* 프리뷰 내 가짜 thumb */
+.fake-thumb {
+    width: 12px;
+    height: 12px;
+    border: 2px solid white;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    z-index: 10;
+}
+
+/* ───────────────────────────────────────────
+   숨김 컬러 피커
+─────────────────────────────────────────── */
+.hidden-color-input {
+    position: fixed;
+    width: 0;
+    height: 0;
+    opacity: 0;
+}
+
+/* ───────────────────────────────────────────
+   성향 체크 아이템
+─────────────────────────────────────────── */
+.head-icon {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    transition: background-color 0.3s;
+}
+
+.edit-btn {
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 0.2s;
+}
+.edit-btn:hover { opacity: 1; }
+
+/* ───────────────────────────────────────────
+   프리뷰 내 메인 이미지
+─────────────────────────────────────────── */
+#targetImg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: center center;
+    max-width: none;
+}
+
+/* ───────────────────────────────────────────
+   텍스트 말줄임 (저장 시 보정용)
+─────────────────────────────────────────── */
+.truncate-text {
+    display: block;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+    width: 100%;
+    line-height: 1 !important;
+    padding: 0 !important;
+    box-sizing: border-box;
+}
+
+/* ───────────────────────────────────────────
+   로딩 오버레이
+─────────────────────────────────────────── */
+#loadingOverlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,.7);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    color: white;
+    backdrop-filter: blur(4px);
+}
+
+.loader {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 10px;
+}
+
+@keyframes spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ───────────────────────────────────────────
+   온보딩 모달
+─────────────────────────────────────────── */
+#onboardingModal {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,.75);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    font-family: var(--font-default);
+}
+
+.onboarding-box {
+    background: white;
+    border-radius: 24px;
+    padding: 40px 48px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 24px 60px rgba(0,0,0,.3);
+}
+
+.onboarding-box h2 {
+    font-size: 18px;
+    font-weight: 800;
+    margin: 0 0 24px 0;
+    color: #111;
+}
+
+.onboarding-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 32px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.onboarding-list li {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.onboarding-list .icon  { font-size: 18px; flex-shrink: 0; }
+.onboarding-list .desc  { font-size: 13px; color: #444; line-height: 1.6; }
+.onboarding-list .desc-muted { color: #aaa; }
+
+.onboarding-confirm {
+    width: 100%;
+    background: #111;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: var(--font-default);
+}
+.onboarding-confirm:hover { background: #333; }
+
+/* ───────────────────────────────────────────
+   실시간 공유 모달
+─────────────────────────────────────────── */
+.share-modal-bg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,.55);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    font-family: var(--font-default);
+}
+
+.share-modal-box {
+    background: white;
+    border-radius: 24px;
+    padding: 32px;
+    width: 380px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.25);
+}
+
+/* 연결 상태 dot 색상 변형 */
+#statusDot.connected    { background: #22c55e; }
+#statusDot.connecting   { background: #f59e0b; animation: pulse 1s infinite; }
+#statusDot.disconnected { background: #e5e7eb; }
+
+@keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: .4; }
+}
+
+/* ───────────────────────────────────────────
+   이미지 스티커 미리보기
+─────────────────────────────────────────── */
+.imgsticker-preview {
+    width: 48px; height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid #e5e7eb;
+    flex-shrink: 0;
+}
+
+.imgsticker-placeholder {
+    width: 48px; height: 48px;
+    border-radius: 8px;
+    background: #f3f4f6;
+    border: 1px dashed #d1d5db;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+/* ───────────────────────────────────────────
+   슬라이더 타이틀 래퍼 (오버플로 보정)
+─────────────────────────────────────────── */
+.slider-card-title-wrap {
+    height: 20px;
+    display: flex;
+    align-items: flex-end;
+    overflow: visible;
+}
+
+/* ───────────────────────────────────────────
+   비밀번호 모달 input 흔들림 애니메이션
+─────────────────────────────────────────── */
+@keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20%      { transform: translateX(-6px); }
+    40%      { transform: translateX(6px); }
+    60%      { transform: translateX(-4px); }
+    80%      { transform: translateX(4px); }
+}
+.shake { animation: shake 0.4s ease; }

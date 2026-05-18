@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>페어 성향 체크</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-sha256@0.9.0/src/sha256.min.js"></script>
+    <link rel="stylesheet" crossorigin
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+    <style>
+        body { font-family: "Pretendard", -apple-system, sans-serif; }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            20%      { transform: translateX(-6px); }
+            40%      { transform: translateX(6px); }
+            60%      { transform: translateX(-4px); }
+            80%      { transform: translateX(4px); }
+        }
+        .shake { animation: shake 0.4s ease; }
+    </style>
+</head>
+<body class="min-h-screen bg-[#EBEDF0] flex items-center justify-center">
+
+    <div class="bg-white rounded-3xl px-12 py-10 w-[360px] shadow-2xl flex flex-col items-center">
+        <div class="text-3xl mb-3">🔒</div>
+        <h2 class="text-lg font-extrabold mb-1 text-gray-900">비밀번호를 입력하세요</h2>
+        <p class="text-xs text-gray-400 mb-6 text-center">접근 권한이 있는 사용자만 입장할 수 있습니다.</p>
+        <input type="password" id="passwordInput" placeholder="비밀번호"
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-black mb-2 text-center tracking-widest"
+            onkeydown="if(event.key==='Enter') checkPassword()">
+        <p id="passwordError" class="text-xs text-red-400 mb-3 hidden">비밀번호가 올바르지 않습니다.</p>
+        <button onclick="checkPassword()"
+            class="w-full bg-black text-white font-bold py-3 rounded-xl text-sm hover:bg-gray-800">입장하기</button>
+    </div>
+
+    <script>
+        const SUPABASE_URL      = 'https://cjcfdomatauvolruvjqb.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqY2Zkb21hdGF1dm9scnV2anFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNzMwNzAsImV4cCI6MjA5NDY0OTA3MH0.CFgj_yy98LWV0ggEfRCyNveiS5bxw6lLiNYH1qmZXag';
+        const supabaseClient    = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        /* 이미 인증된 세션이면 바로 app.html로 */
+        if (sessionStorage.getItem('auth') === 'ok') {
+            location.replace('app.html');
+        }
+
+        async function checkPassword() {
+            const input = document.getElementById('passwordInput').value;
+            if (!input) return;
+
+            const inputHash = window.sha256(input);
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('app_config')
+                    .select('value')
+                    .eq('key', 'password_hash')
+                    .single();
+
+                if (error) throw error;
+
+                if (inputHash === data.value) {
+                    sessionStorage.setItem('auth', 'ok');
+                    location.replace('app.html');
+                } else {
+                    const inp = document.getElementById('passwordInput');
+                    const err = document.getElementById('passwordError');
+                    err.classList.remove('hidden');
+                    inp.value = '';
+                    inp.classList.add('shake');
+                    inp.addEventListener('animationend', () => inp.classList.remove('shake'), { once: true });
+                    inp.focus();
+                }
+            } catch (e) {
+                console.error('비밀번호 확인 오류:', e);
+                alert('서버 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+            }
+        }
+
+        document.getElementById('passwordInput').focus();
+    </script>
+</body>
+</html>
