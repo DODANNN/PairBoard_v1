@@ -1,28 +1,8 @@
-/* =====================================================================
-   app.js  —  페어 성향 체크 + 실시간 공유 (요구 2번)
-   
-   실시간 공유 구조:
-   - Supabase Realtime Broadcast 사용 (서버리스, WebSocket 기반)
-   - state-based sync: previewState만 broadcast, UI 조작은 각자 독립
-   - debounce 300ms 적용으로 과도한 broadcast 방지
-   - room URL 파라미터: ?room=ROOMID
-   ===================================================================== */
 
-/* ─── Supabase 설정 ──────────────────────────────────────────────────
-   ※ 아래 두 값을 본인 프로젝트 값으로 교체하세요.
-      무료 플랜: https://supabase.com → New Project → Settings → API Keys
-      Realtime broadcast + Storage 모두 anon key만으로 동작합니다.
-
-   ※ Storage 버킷 사전 설정 (1회):
-      Supabase 대시보드 → Storage → New bucket
-      버킷 이름: pair-check-images
-      Public bucket: ✅ ON (CORS 자동 허용 → html2canvas 정상 캡처)
-─────────────────────────────────────────────────────────────────── */
 const SUPABASE_URL      = 'https://cjcfdomatauvolruvjqb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqY2Zkb21hdGF1dm9scnV2anFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNzMwNzAsImV4cCI6MjA5NDY0OTA3MH0.CFgj_yy98LWV0ggEfRCyNveiS5bxw6lLiNYH1qmZXag';
-const STORAGE_BUCKET    = 'pair-check-images'; // 위에서 만든 버킷 이름
+const STORAGE_BUCKET    = 'pair-check-images'; 
 
-/* 데모/로컬 테스트용 폴백: Supabase 미설정 시 BroadcastChannel(같은 탭 동작) 사용 */
 const USE_SUPABASE = SUPABASE_URL !== 'https://YOUR_PROJECT.supabase.co';
 
 /* ─── 전역 상태 ──────────────────────────────────────────────────── */
@@ -41,6 +21,33 @@ let currentImgPath = null;
 
 /* 이미지 스티커 Storage 경로 추적 (id → path) */
 const imgStickerPaths = {};
+
+/* ─── 필드별 타임스탬프 ───────────────────────────────────────────
+   내가 마지막으로 조작한 시각을 필드별로 기록
+   수신한 값의 타임스탬프가 내 것보다 최신일 때만 프리뷰에 반영
+─────────────────────────────────────────────────────────────────── */
+const fieldTs = {
+    n1: 0, n2: 0, src: 0,
+    c1: 0, c2: 0, bg: 0, txt: 0, unLink: 0,
+    sliderVals: Array(6).fill(null).map(() => [0, 0]), // [항목][위/아래] 2차원
+    traitLabels: Array(6).fill(0),                     // 성향 이름 항목별
+};
+
+/* 필드 타임스탬프 갱신
+   sliderVals: touchField('sliderVals', [i, p])
+   traitLabels: touchField('traitLabels', i)
+   그 외: touchField('fieldName')
+*/
+function touchField(field, idx) {
+    const now = Date.now();
+    if (field === 'sliderVals' && Array.isArray(idx)) {
+        fieldTs.sliderVals[idx[0]][idx[1]] = now;
+    } else if (idx !== undefined) {
+        fieldTs[field][idx] = now;
+    } else {
+        fieldTs[field] = now;
+    }
+}
 
 /* 공유 링크로 진입한 뷰어 여부 (true면 공유 버튼 비활성화) */
 let isViewer = false;
@@ -138,31 +145,27 @@ function disableShareBtn() {
 
 /* ─── 온보딩 모달 ─────────────────────────────────────────────────── */
 function initOnboarding() {
-    const modal      = document.getElementById('onboardingModal');
+    const modal   = document.getElementById('onboardingModal');
     const confirmBtn = document.getElementById('onboardingConfirmBtn');
-    const stored     = localStorage.getItem('hideOnboarding');
+    const stored  = localStorage.getItem('hideOnboarding');
 
-    /* 하루 안 보기 체크 안 했으면 자동으로 표시 */
-    if (!stored || Date.now() >= Number(stored)) {
-        modal.style.display = 'flex';
+    /* 24시간 이내 '보지 않기' 선택한 경우 즉시 닫음 */
+    if (stored && Date.now() < Number(stored)) {
+        modal.style.display = 'none';
+        return;
     }
 
-    /* 확인 버튼 — 매번 새로 등록 (? 버튼으로 재열기 시에도 동작하도록) */
-    const newBtn = confirmBtn.cloneNode(true);
-    confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
-    newBtn.addEventListener('click', () => {
+    confirmBtn.addEventListener('click', () => {
         if (document.getElementById('hideToday').checked) {
-            localStorage.setItem('hideOnboarding', Date.now() + 86400000);
+            localStorage.setItem('hideOnboarding', Date.now() + 86400000); // +24h
         }
         modal.style.display = 'none';
     });
 
-    /* 오버레이 클릭 닫기 — 매번 새로 등록 */
-    const closeHandler = (e) => {
+    /* 오버레이 클릭 닫기 */
+    modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.style.display = 'none';
-    };
-    modal.removeEventListener('click', closeHandler);
-    modal.addEventListener('click', closeHandler);
+    });
 }
 
 /* ─── Room ID 자동 생성 ─────────────────────────────────────────── */
@@ -489,11 +492,24 @@ function collectPreviewState() {
         txt:         state.txt,
         traitLabels,
         sliderVals,
-        imgUrl,        // Storage URL — 상대방이 이 URL로 이미지 로드
-        imgTransform,  // 드래그/확대 위치 sync
-        stickers,      // 텍스트 스티커 전체
-        imgStickers,   // 이미지 스티커 전체
+        imgUrl,
+        imgTransform,
+        stickers,
+        imgStickers,
         isUploading: window._isUploading ?? false,
+        /* 필드별 타임스탬프 — 수신 측에서 최신값만 반영하는 데 사용 */
+        ts: {
+            n1:          fieldTs.n1,
+            n2:          fieldTs.n2,
+            src:         fieldTs.src,
+            c1:          fieldTs.c1,
+            c2:          fieldTs.c2,
+            bg:          fieldTs.bg,
+            txt:         fieldTs.txt,
+            unLink:      fieldTs.unLink,
+            sliderVals:  fieldTs.sliderVals.map(pair => [...pair]), // 2차원 복사
+            traitLabels: [...fieldTs.traitLabels],
+        },
     };
 }
 
@@ -561,10 +577,27 @@ function applyRemoteState(ps) {
         }
         /* isUploading false 처리는 이미지 onload 또는 imgUrl 없음에서 처리 */
 
+        /* 타임스탬프 헬퍼 — 상대방 ts가 내 ts보다 최신이면 true */
+        const newer = (field, idx) => {
+            if (!ps.ts) return true; // ts 없으면 항상 반영 (하위 호환)
+            let remote, mine;
+            if (field === 'sliderVals' && Array.isArray(idx)) {
+                remote = ps.ts.sliderVals?.[idx[0]]?.[idx[1]];
+                mine   = fieldTs.sliderVals[idx[0]][idx[1]];
+            } else if (idx !== undefined) {
+                remote = ps.ts[field]?.[idx];
+                mine   = fieldTs[field][idx];
+            } else {
+                remote = ps.ts[field];
+                mine   = fieldTs[field];
+            }
+            return (remote ?? 0) >= mine;
+        };
+
         /* 이름·출처 */
-        document.getElementById('display-name1').innerText = ps.n1;
-        document.getElementById('display-name2').innerText = ps.n2;
-        document.getElementById('display-source').innerText = ps.src;
+        if (newer('n1'))  document.getElementById('display-name1').innerText = ps.n1;
+        if (newer('n2'))  document.getElementById('display-name2').innerText = ps.n2;
+        if (newer('src')) document.getElementById('display-source').innerText = ps.src;
 
         /* 이미지 — Storage URL이 있으면 프리뷰에 적용 */
         if (ps.imgUrl) {
@@ -598,24 +631,35 @@ function applyRemoteState(ps) {
         }
 
         /* 색상 */
-        document.getElementById('display-name1').style.color = ps.unLink ? ps.txt : ps.c1;
-        document.getElementById('display-name2').style.color = ps.unLink ? ps.txt : ps.c2;
-        document.documentElement.style.setProperty('--thumb-a', ps.c1);
-        document.documentElement.style.setProperty('--thumb-b', ps.c2);
+        const applyC1  = newer('c1');
+        const applyC2  = newer('c2');
+        const applyTxt = newer('txt');
+        const applyBg  = newer('bg');
+        const applyUnLink = newer('unLink');
+        const useUnLink   = applyUnLink ? ps.unLink : document.getElementById('unLinkColor').checked;
+        const useC1       = applyC1  ? ps.c1  : state.c1;
+        const useC2       = applyC2  ? ps.c2  : state.c2;
+        const useTxt      = applyTxt ? ps.txt : state.txt;
+
+        document.getElementById('display-name1').style.color = useUnLink ? useTxt : useC1;
+        document.getElementById('display-name2').style.color = useUnLink ? useTxt : useC2;
+        if (applyC1)  document.documentElement.style.setProperty('--thumb-a', ps.c1);
+        if (applyC2)  document.documentElement.style.setProperty('--thumb-b', ps.c2);
 
         /* 배경 */
-        document.getElementById('captureArea').style.backgroundColor = ps.bg;
+        if (applyBg) document.getElementById('captureArea').style.backgroundColor = ps.bg;
 
         /* 슬라이더 프리뷰 바 */
         traits.forEach((_, i) => {
             const titleEl = document.getElementById(`t-title-${i}`);
-            if (titleEl) {
+            if (titleEl && newer('traitLabels', i)) {
                 titleEl.innerText = ps.traitLabels?.[i] ?? traits[i];
-                titleEl.style.color = ps.txt;
+                titleEl.style.color = useTxt;
             }
             for (let p = 1; p <= 2; p++) {
+                if (!newer('sliderVals', [i, p-1])) continue; // 위/아래 슬라이더 개별 비교
                 const val   = ps.sliderVals?.[i]?.[p-1] ?? 50;
-                const color = p === 1 ? ps.c1 : ps.c2;
+                const color = p === 1 ? (applyC1 ? ps.c1 : state.c1) : (applyC2 ? ps.c2 : state.c2);
                 const bar   = document.getElementById(`t-bar-${i}-${p}`);
                 const thumb = document.getElementById(`t-thumb-${i}-${p}`);
                 if (bar)   { bar.style.width = `${val}%`; bar.style.backgroundColor = color; }
@@ -743,7 +787,7 @@ function applyRemoteImgStickers(imgStickers) {
 async function autoConnectFromURL() {
     const urlRoom = new URLSearchParams(location.search).get('room');
     if (!urlRoom) return;
-    disableShareBtn();
+
     pendingRoomId = urlRoom;
     updateShareLink(urlRoom);
 
@@ -791,6 +835,7 @@ function hideExpiredOverlay() {
 /* ─── 기본 색상 업데이트 ────────────────────────────────────────── */
 function updateBaseColor(type, val) {
     state[type] = val;
+    touchField(type);
     if (type === 'bg') {
         document.getElementById('cpBg').style.backgroundColor = val;
         document.getElementById('captureArea').style.backgroundColor = val;
@@ -806,6 +851,7 @@ const openCP = (id) => document.getElementById(id).click();
 function updateColor(p, val) {
     state[`c${p}`] = val;
     document.getElementById(`cp${p}`).style.backgroundColor = val;
+    touchField(`c${p}`);
     syncAll();
 }
 
@@ -1486,13 +1532,13 @@ function init() {
     <div class="flex items-center gap-2">
         <div id="icon-${i}" class="head-icon bg-gray-200 shrink-0"></div>
         <input type="text" id="trait-in-${i}" value="${t}" readonly
-               onblur="disableEdit(${i})" oninput="syncAll()"
+               onblur="disableEdit(${i})" oninput="touchField('traitLabels',${i});syncAll()"
                class="text-[13px] font-bold bg-transparent outline-none flex-1 border-none cursor-default">
         <span id="btn-${i}" onclick="enableEdit(${i})" class="edit-btn text-xs">✏️</span>
     </div>
     <div class="space-y-3 px-1">
-        <input type="range" id="range-${i}-1" value="50" oninput="syncAll()" class="slider-a">
-        <input type="range" id="range-${i}-2" value="50" oninput="syncAll()" class="slider-b">
+        <input type="range" id="range-${i}-1" value="50" oninput="touchField('sliderVals',[${i},0]);syncAll()" class="slider-a">
+        <input type="range" id="range-${i}-2" value="50" oninput="touchField('sliderVals',[${i},1]);syncAll()" class="slider-b">
     </div>
 </div>`;
 
