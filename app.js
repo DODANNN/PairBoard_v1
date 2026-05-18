@@ -663,13 +663,20 @@ function applyRemoteState(ps) {
                 titleEl.style.color = useTxt;
             }
             for (let p = 1; p <= 2; p++) {
-                if (!newer('sliderVals', [i, p-1])) continue; // 위/아래 슬라이더 개별 비교
-                const val   = ps.sliderVals?.[i]?.[p-1] ?? 50;
-                const color = p === 1 ? (applyC1 ? ps.c1 : state.c1) : (applyC2 ? ps.c2 : state.c2);
+                const color = p === 1 ? state.c1 : state.c2;
                 const bar   = document.getElementById(`t-bar-${i}-${p}`);
                 const thumb = document.getElementById(`t-thumb-${i}-${p}`);
-                if (bar)   { bar.style.width = `${val}%`; bar.style.backgroundColor = color; }
-                if (thumb) { thumb.style.left = `${val}%`; thumb.style.backgroundColor = color; }
+
+                /* 슬라이더 값이 최신이면 값도 업데이트, 아니면 색상만 업데이트 */
+                if (newer('sliderVals', [i, p-1])) {
+                    const val = ps.sliderVals?.[i]?.[p-1] ?? 50;
+                    if (bar)   { bar.style.width = `${val}%`; bar.style.backgroundColor = color; }
+                    if (thumb) { thumb.style.left = `${val}%`; thumb.style.backgroundColor = color; }
+                } else {
+                    /* 값은 유지, 색상만 갱신 (컬러 변경 시 전체 반영) */
+                    if (applyC1 && p === 1) { if (bar) bar.style.backgroundColor = color; if (thumb) thumb.style.backgroundColor = color; }
+                    if (applyC2 && p === 2) { if (bar) bar.style.backgroundColor = color; if (thumb) thumb.style.backgroundColor = color; }
+                }
             }
         });
 
