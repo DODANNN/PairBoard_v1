@@ -636,6 +636,12 @@ function applyRemoteState(ps) {
         const applyTxt = newer('txt');
         const applyBg  = newer('bg');
         const applyUnLink = newer('unLink');
+
+        if (applyC1)  state.c1  = ps.c1;
+        if (applyC2)  state.c2  = ps.c2;
+        if (applyTxt) state.txt = ps.txt;
+        if (applyBg)  state.bg  = ps.bg;
+
         const useUnLink   = applyUnLink ? ps.unLink : document.getElementById('unLinkColor').checked;
         const useC1       = applyC1  ? ps.c1  : state.c1;
         const useC2       = applyC2  ? ps.c2  : state.c2;
