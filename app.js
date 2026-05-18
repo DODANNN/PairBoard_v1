@@ -1,8 +1,28 @@
+/* =====================================================================
+   app.js  —  페어 성향 체크 + 실시간 공유 (요구 2번)
+   
+   실시간 공유 구조:
+   - Supabase Realtime Broadcast 사용 (서버리스, WebSocket 기반)
+   - state-based sync: previewState만 broadcast, UI 조작은 각자 독립
+   - debounce 300ms 적용으로 과도한 broadcast 방지
+   - room URL 파라미터: ?room=ROOMID
+   ===================================================================== */
 
+/* ─── Supabase 설정 ──────────────────────────────────────────────────
+   ※ 아래 두 값을 본인 프로젝트 값으로 교체하세요.
+      무료 플랜: https://supabase.com → New Project → Settings → API Keys
+      Realtime broadcast + Storage 모두 anon key만으로 동작합니다.
+
+   ※ Storage 버킷 사전 설정 (1회):
+      Supabase 대시보드 → Storage → New bucket
+      버킷 이름: pair-check-images
+      Public bucket: ✅ ON (CORS 자동 허용 → html2canvas 정상 캡처)
+─────────────────────────────────────────────────────────────────── */
 const SUPABASE_URL      = 'https://cjcfdomatauvolruvjqb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqY2Zkb21hdGF1dm9scnV2anFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNzMwNzAsImV4cCI6MjA5NDY0OTA3MH0.CFgj_yy98LWV0ggEfRCyNveiS5bxw6lLiNYH1qmZXag';
-const STORAGE_BUCKET    = 'pair-check-images'; 
+const STORAGE_BUCKET    = 'pair-check-images'; // 위에서 만든 버킷 이름
 
+/* 데모/로컬 테스트용 폴백: Supabase 미설정 시 BroadcastChannel(같은 탭 동작) 사용 */
 const USE_SUPABASE = SUPABASE_URL !== 'https://YOUR_PROJECT.supabase.co';
 
 /* ─── 전역 상태 ──────────────────────────────────────────────────── */
@@ -561,8 +581,8 @@ function applyImgTransform(img, t) {
 }
 
 /**
- * 수신한 remote state를 프리뷰에 반영
- * (에디터 UI는 건드리지 않음 — preview only)
+ * 수신한 remote state를 에디터 + 프리뷰 모두에 반영
+ * 타임스탬프 기준으로 더 최신인 필드만 업데이트
  */
 let _applyingRemote = false;
 
@@ -572,14 +592,12 @@ function applyRemoteState(ps) {
     try {
         /* 업로드 오버레이 */
         if (ps.isUploading) {
-            /* 상대방이 업로드 중 — 나도 오버레이 ON */
             setImgOverlay(true, '이미지를 수정 중입니다.');
         }
-        /* isUploading false 처리는 이미지 onload 또는 imgUrl 없음에서 처리 */
 
         /* 타임스탬프 헬퍼 — 상대방 ts가 내 ts보다 최신이면 true */
         const newer = (field, idx) => {
-            if (!ps.ts) return true; // ts 없으면 항상 반영 (하위 호환)
+            if (!ps.ts) return true;
             let remote, mine;
             if (field === 'sliderVals' && Array.isArray(idx)) {
                 remote = ps.ts.sliderVals?.[idx[0]]?.[idx[1]];
@@ -594,16 +612,71 @@ function applyRemoteState(ps) {
             return (remote ?? 0) >= mine;
         };
 
-        /* 이름·출처 */
-        if (newer('n1'))  document.getElementById('display-name1').innerText = ps.n1;
-        if (newer('n2'))  document.getElementById('display-name2').innerText = ps.n2;
-        if (newer('src')) document.getElementById('display-source').innerText = ps.src;
+        /* ── 이름 ── */
+        if (newer('n1')) {
+            document.getElementById('n1').value = ps.n1;
+            document.getElementById('display-name1').innerText = ps.n1;
+        }
+        if (newer('n2')) {
+            document.getElementById('n2').value = ps.n2;
+            document.getElementById('display-name2').innerText = ps.n2;
+        }
 
-        /* 이미지 — Storage URL이 있으면 프리뷰에 적용 */
+        /* ── 출처 ── */
+        if (newer('src')) {
+            document.getElementById('srcIn').value = ps.src;
+            document.getElementById('display-source').innerText = ps.src;
+        }
+
+        /* ── 컬러 연동 해제 ── */
+        const applyUnLink = newer('unLink');
+        if (applyUnLink) {
+            document.getElementById('unLinkColor').checked = ps.unLink;
+        }
+        const useUnLink = applyUnLink ? ps.unLink : document.getElementById('unLinkColor').checked;
+
+        /* ── 색상 ── */
+        const applyC1  = newer('c1');
+        const applyC2  = newer('c2');
+        const applyTxt = newer('txt');
+        const applyBg  = newer('bg');
+
+        if (applyC1) {
+            state.c1 = ps.c1;
+            document.getElementById('c1').value                  = ps.c1;
+            document.getElementById('cp1').style.backgroundColor = ps.c1;
+            document.documentElement.style.setProperty('--thumb-a', ps.c1);
+        }
+        if (applyC2) {
+            state.c2 = ps.c2;
+            document.getElementById('c2').value                  = ps.c2;
+            document.getElementById('cp2').style.backgroundColor = ps.c2;
+            document.documentElement.style.setProperty('--thumb-b', ps.c2);
+        }
+        if (applyTxt) {
+            state.txt = ps.txt;
+            document.getElementById('txtCol').value                 = ps.txt;
+            document.getElementById('cpText').style.backgroundColor = ps.txt;
+        }
+        if (applyBg) {
+            state.bg = ps.bg;
+            document.getElementById('bgCol').value                = ps.bg;
+            document.getElementById('cpBg').style.backgroundColor = ps.bg;
+            document.getElementById('captureArea').style.backgroundColor = ps.bg;
+        }
+
+        const useC1  = state.c1;
+        const useC2  = state.c2;
+        const useTxt = state.txt;
+
+        /* 이름 색상 프리뷰 */
+        document.getElementById('display-name1').style.color = useUnLink ? useTxt : useC1;
+        document.getElementById('display-name2').style.color = useUnLink ? useTxt : useC2;
+
+        /* ── 이미지 ── */
         if (ps.imgUrl) {
             const img = document.getElementById('targetImg');
             if (img.getAttribute('data-storage-url') !== ps.imgUrl) {
-                /* 새 이미지 — URL 바뀐 경우만 재로드 */
                 img.setAttribute('crossorigin', 'anonymous');
                 img.src = ps.imgUrl;
                 img.setAttribute('data-storage-url', ps.imgUrl);
@@ -613,16 +686,13 @@ function applyRemoteState(ps) {
                     img.style.width  = ratio > 1 ? 'auto' : '100%';
                     applyImgTransform(img, ps.imgTransform);
                     img.classList.remove('hidden');
-                    /* B: 이미지 로드 완료 시 오버레이 OFF */
                     setImgOverlay(false);
                 };
             } else if (ps.imgTransform) {
-                /* 같은 이미지 — transform만 업데이트, 오버레이 불필요 */
                 applyImgTransform(img, ps.imgTransform);
                 if (!ps.isUploading) setImgOverlay(false);
             }
         } else if (!ps.isUploading) {
-            /* imgUrl 없고 업로드 중도 아님 = 이미지 삭제됨 */
             const img = document.getElementById('targetImg');
             img.src = '';
             img.classList.add('hidden');
@@ -630,60 +700,60 @@ function applyRemoteState(ps) {
             setImgOverlay(false);
         }
 
-        /* 색상 */
-        const applyC1  = newer('c1');
-        const applyC2  = newer('c2');
-        const applyTxt = newer('txt');
-        const applyBg  = newer('bg');
-        const applyUnLink = newer('unLink');
-
-        if (applyC1)  state.c1  = ps.c1;
-        if (applyC2)  state.c2  = ps.c2;
-        if (applyTxt) state.txt = ps.txt;
-        if (applyBg)  state.bg  = ps.bg;
-
-        const useUnLink   = applyUnLink ? ps.unLink : document.getElementById('unLinkColor').checked;
-        const useC1       = applyC1  ? ps.c1  : state.c1;
-        const useC2       = applyC2  ? ps.c2  : state.c2;
-        const useTxt      = applyTxt ? ps.txt : state.txt;
-
-        document.getElementById('display-name1').style.color = useUnLink ? useTxt : useC1;
-        document.getElementById('display-name2').style.color = useUnLink ? useTxt : useC2;
-        if (applyC1)  document.documentElement.style.setProperty('--thumb-a', ps.c1);
-        if (applyC2)  document.documentElement.style.setProperty('--thumb-b', ps.c2);
-
-        /* 배경 */
-        if (applyBg) document.getElementById('captureArea').style.backgroundColor = ps.bg;
-
-        /* 슬라이더 프리뷰 바 */
+        /* ── 성향 체크 에디터 + 프리뷰 ── */
         traits.forEach((_, i) => {
-            const titleEl = document.getElementById(`t-title-${i}`);
-            if (titleEl && newer('traitLabels', i)) {
-                titleEl.innerText = ps.traitLabels?.[i] ?? traits[i];
-                titleEl.style.color = useTxt;
+            /* 성향 이름 */
+            if (newer('traitLabels', i)) {
+                const input = document.getElementById(`trait-in-${i}`);
+                if (input) input.value = ps.traitLabels?.[i] ?? traits[i];
+                const titleEl = document.getElementById(`t-title-${i}`);
+                if (titleEl) { titleEl.innerText = ps.traitLabels?.[i] ?? traits[i]; titleEl.style.color = useTxt; }
+            } else {
+                /* 값은 안 바뀌어도 색상은 갱신 */
+                const titleEl = document.getElementById(`t-title-${i}`);
+                if (titleEl && (applyTxt)) titleEl.style.color = useTxt;
             }
+
             for (let p = 1; p <= 2; p++) {
-                const color = p === 1 ? state.c1 : state.c2;
+                const color = p === 1 ? useC1 : useC2;
                 const bar   = document.getElementById(`t-bar-${i}-${p}`);
                 const thumb = document.getElementById(`t-thumb-${i}-${p}`);
 
-                /* 슬라이더 값이 최신이면 값도 업데이트, 아니면 색상만 업데이트 */
                 if (newer('sliderVals', [i, p-1])) {
-                    const val = ps.sliderVals?.[i]?.[p-1] ?? 50;
+                    const val    = ps.sliderVals?.[i]?.[p-1] ?? 50;
+                    const slider = document.getElementById(`range-${i}-${p}`);
+                    /* 에디터 슬라이더 값 업데이트 */
+                    if (slider) {
+                        slider.value = val;
+                        slider.style.background = `linear-gradient(to right, ${color} ${val}%, #eee ${val}%)`;
+                    }
+                    /* 프리뷰 바 업데이트 */
                     if (bar)   { bar.style.width = `${val}%`; bar.style.backgroundColor = color; }
                     if (thumb) { thumb.style.left = `${val}%`; thumb.style.backgroundColor = color; }
                 } else {
-                    /* 값은 유지, 색상만 갱신 (컬러 변경 시 전체 반영) */
-                    if (applyC1 && p === 1) { if (bar) bar.style.backgroundColor = color; if (thumb) thumb.style.backgroundColor = color; }
-                    if (applyC2 && p === 2) { if (bar) bar.style.backgroundColor = color; if (thumb) thumb.style.backgroundColor = color; }
+                    /* 값 유지, 색상만 갱신 (컬러 변경 시) */
+                    if (applyC1 && p === 1) {
+                        const slider = document.getElementById(`range-${i}-${p}`);
+                        const val = slider ? slider.value : 50;
+                        if (slider) slider.style.background = `linear-gradient(to right, ${color} ${val}%, #eee ${val}%)`;
+                        if (bar)   bar.style.backgroundColor   = color;
+                        if (thumb) thumb.style.backgroundColor = color;
+                    }
+                    if (applyC2 && p === 2) {
+                        const slider = document.getElementById(`range-${i}-${p}`);
+                        const val = slider ? slider.value : 50;
+                        if (slider) slider.style.background = `linear-gradient(to right, ${color} ${val}%, #eee ${val}%)`;
+                        if (bar)   bar.style.backgroundColor   = color;
+                        if (thumb) thumb.style.backgroundColor = color;
+                    }
                 }
             }
         });
 
-        /* 텍스트 스티커 sync */
+        /* ── 텍스트 스티커 sync ── */
         if (ps.stickers) applyRemoteStickers(ps.stickers);
 
-        /* 이미지 스티커 sync */
+        /* ── 이미지 스티커 sync ── */
         if (ps.imgStickers) applyRemoteImgStickers(ps.imgStickers);
 
     } finally {
@@ -800,6 +870,9 @@ function applyRemoteImgStickers(imgStickers) {
 async function autoConnectFromURL() {
     const urlRoom = new URLSearchParams(location.search).get('room');
     if (!urlRoom) return;
+
+    /* 링크 진입자 — 공유 버튼 DOM에서 완전 제거 */
+    disableShareBtn();
 
     pendingRoomId = urlRoom;
     updateShareLink(urlRoom);
