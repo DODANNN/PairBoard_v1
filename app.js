@@ -1516,7 +1516,7 @@ function downloadEditorJson() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `성향체크_${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -1609,24 +1609,27 @@ function applyEditorJson(data) {
     document.getElementById('unLinkColor').checked = data.unLink ?? false;
     fieldTs.unLink = now;
 
-    /* 색상 */
+    /* 색상 — state 업데이트 + 에디터 UI + CSS 변수 동시 갱신 */
     state.c1 = data.c1; state.c2 = data.c2;
     state.bg = data.bg; state.txt = data.txt;
     document.getElementById('c1').value = data.c1;
     document.getElementById('c2').value = data.c2;
     document.getElementById('bgCol').value  = data.bg;
     document.getElementById('txtCol').value = data.txt;
-    document.getElementById('cp1').style.backgroundColor  = data.c1;
-    document.getElementById('cp2').style.backgroundColor  = data.c2;
+    document.getElementById('cp1').style.backgroundColor   = data.c1;
+    document.getElementById('cp2').style.backgroundColor   = data.c2;
     document.getElementById('cpBg').style.backgroundColor  = data.bg;
     document.getElementById('cpText').style.backgroundColor = data.txt;
     document.getElementById('captureArea').style.backgroundColor = data.bg;
+    /* CSS 변수 갱신 — 슬라이더 thumb 색상 반영 */
+    document.documentElement.style.setProperty('--thumb-a', data.c1);
+    document.documentElement.style.setProperty('--thumb-b', data.c2);
     fieldTs.c1 = now; fieldTs.c2 = now;
     fieldTs.bg = now; fieldTs.txt = now;
 
-    /* 성향 이름 + 슬라이더 */
+    /* 성향 이름 + 슬라이더 — track 색상까지 갱신 */
     traits.forEach((_, i) => {
-        const label  = data.traitLabels[i] ?? traits[i];
+        const label   = data.traitLabels[i] ?? traits[i];
         const sliders = data.sliderVals[i] ?? [50, 50];
 
         const input = document.getElementById(`trait-in-${i}`);
@@ -1634,13 +1637,19 @@ function applyEditorJson(data) {
         fieldTs.traitLabels[i] = now;
 
         for (let p = 1; p <= 2; p++) {
+            const val    = sliders[p-1] ?? 50;
+            const color  = p === 1 ? data.c1 : data.c2;
             const slider = document.getElementById(`range-${i}-${p}`);
-            if (slider) slider.value = sliders[p-1] ?? 50;
+            if (slider) {
+                slider.value = val;
+                /* track 색상도 즉시 반영 */
+                slider.style.background = `linear-gradient(to right, ${color} ${val}%, #eee ${val}%)`;
+            }
             fieldTs.sliderVals[i][p-1] = now;
         }
     });
 
-    /* 메인 이미지 복원 (Storage URL이 있는 경우) */
+    /* 메인 이미지 복원 */
     if (data.imgUrl) {
         const img = document.getElementById('targetImg');
         img.setAttribute('crossorigin', 'anonymous');
@@ -1663,25 +1672,23 @@ function applyEditorJson(data) {
         img.src = data.imgUrl;
     }
 
-    /* 텍스트 스티커 복원 */
-    if (Array.isArray(data.stickers) && data.stickers.length > 0) {
-        /* 기존 스티커 모두 제거 */
-        document.querySelectorAll('[id^="stickerrow"]').forEach(el => el.remove());
-        document.querySelectorAll('[id^="stickerel"]').forEach(el => el.remove());
-        stickerCount = 0;
+    /* 텍스트 스티커 복원
+       addSticker() 내부에서 stickerCount++를 하므로
+       stickerCount를 0으로 초기화 후 addSticker()에게 맡김 */
+    document.querySelectorAll('[id^="stickerrow"]').forEach(el => el.remove());
+    document.querySelectorAll('[id^="stickerel"]').forEach(el => el.remove());
+    stickerCount = 0;
 
+    if (Array.isArray(data.stickers)) {
         data.stickers.forEach(s => {
-            stickerCount++;
+            addSticker(); // 내부에서 stickerCount++ 하고 id = stickerCount
             const id = stickerCount;
 
-            /* 에디터 행 생성 — addSticker() 로직 재활용 */
-            addSticker();
-
-            /* 텍스트 설정 */
+            /* 텍스트 */
             const input = document.getElementById(`stickerin${id}`);
             if (input) { input.value = s.text || ''; updateSticker(id); }
 
-            /* 색상 설정 */
+            /* 색상 */
             const scbg = document.getElementById(`scbg${id}`);
             const scbd = document.getElementById(`scbd${id}`);
             const sctx = document.getElementById(`sctx${id}`);
@@ -1689,16 +1696,14 @@ function applyEditorJson(data) {
             if (scbd) scbd.value = s.bd ?? '#e5e7eb';
             if (sctx) sctx.value = s.tx ?? '#111111';
 
-            /* 모양 설정 */
+            /* 모양 + 투명도 */
             setStickerShape(id, s.shape ?? 'round');
-
-            /* 투명도 */
             if (s.shape === 'semi') {
                 const opIn = document.getElementById(`sopacity${id}`);
-                if (opIn) { opIn.value = s.opacity ?? 50; }
+                if (opIn) opIn.value = s.opacity ?? 50;
             }
 
-            /* 위치/각도 */
+            /* 위치/각도 — updateStickerStyle 전에 설정 */
             const el = document.getElementById(`stickerel${id}`);
             if (el) {
                 el.style.left      = `${s.x ?? 80}px`;
@@ -1711,20 +1716,17 @@ function applyEditorJson(data) {
 
             updateStickerStyle(id);
         });
-        /* stickerCount가 addSticker()로 인해 중복 증가하는 것 방지 */
-        stickerCount = data.stickers.length;
     }
 
-    /* 이미지 스티커 복원 */
-    if (Array.isArray(data.imgStickers) && data.imgStickers.length > 0) {
-        document.querySelectorAll('[id^="imgstickerrow"]').forEach(el => el.remove());
-        document.querySelectorAll('[id^="imgstickerel"]').forEach(el => el.remove());
-        imgStickerCount = 0;
+    /* 이미지 스티커 복원 — 동일하게 addImgSticker()에 id 맡김 */
+    document.querySelectorAll('[id^="imgstickerrow"]').forEach(el => el.remove());
+    document.querySelectorAll('[id^="imgstickerel"]').forEach(el => el.remove());
+    imgStickerCount = 0;
 
+    if (Array.isArray(data.imgStickers)) {
         data.imgStickers.forEach(s => {
-            imgStickerCount++;
+            addImgSticker(); // 내부에서 imgStickerCount++ 하고 DOM 생성
             const id = imgStickerCount;
-            addImgSticker();
 
             const el = document.getElementById(`imgstickerel${id}`);
             if (el && s.url) {
@@ -1739,9 +1741,8 @@ function applyEditorJson(data) {
                 el.setAttribute('data-x',     s.x ?? 100);
                 el.setAttribute('data-y',     s.y ?? 100);
                 el.setAttribute('data-angle', s.angle ?? 0);
-                el.src = s.url;
 
-                /* 크기 슬라이더 업데이트 */
+                /* 크기 슬라이더 */
                 const sizeEl = document.getElementById(`issize${id}`);
                 if (sizeEl) sizeEl.value = s.size ?? 80;
 
@@ -1756,9 +1757,11 @@ function applyEditorJson(data) {
                     preview.className = 'imgsticker-preview';
                     wrap.appendChild(preview);
                 }
+
+                /* src 마지막에 설정 — 위치/속성 모두 셋팅 후 로드 */
+                el.src = s.url;
             }
         });
-        imgStickerCount = data.imgStickers.length;
     }
 
     /* 프리뷰 전체 갱신 + broadcast */
