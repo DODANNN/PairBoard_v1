@@ -50,7 +50,7 @@
                 </li>
                 <li>
                     <span class="icon">🔗</span>
-                    <span class="desc">에디터의 값은 연동되지 않습니다. 프리뷰 창만 서로 공유됩니다! 서로의 프리뷰에 연동이 되는 데에 약간의 딜레이가 있습니다.</span>
+                    <span class="desc">에디터와 프리뷰 모두 실시간으로 공유됩니다! 연동되는 데에 약간의 딜레이가 있습니다.</span>
                 </li>
             </ul>
             <!-- 하루 동안 보지 않기 -->
@@ -170,12 +170,12 @@
                     <div class="flex justify-between items-center mb-4">
                         <label class="text-[0.9rem] font-bold text-black">이름 및 색상</label>
                         <label class="flex items-center text-[10px] font-bold gap-1 cursor-pointer bg-gray-100 px-2 py-1 rounded-lg">
-                            <input type="checkbox" id="unLinkColor" onchange="syncAll()"> 컬러 연동 해제
+                            <input type="checkbox" id="unLinkColor" onchange="touchField('unLink');syncAll()"> 컬러 연동 해제
                         </label>
                     </div>
                     <div class="space-y-4">
                         <div class="flex items-center justify-between gap-3">
-                            <input type="text" id="n1" value="이름 A" oninput="syncAll()"
+                            <input type="text" id="n1" value="이름 A" oninput="touchField('n1');syncAll()"
                                 class="flex-1 border-b py-1 outline-none text-sm">
                             <div id="cp1" onclick="openCP('c1')"
                                 class="w-7 h-7 rounded-lg border-2 border-white shadow-md cursor-pointer bg-blue-500 shrink-0"></div>
@@ -183,7 +183,7 @@
                                 oninput="updateColor(1, this.value)">
                         </div>
                         <div class="flex items-center justify-between gap-3">
-                            <input type="text" id="n2" value="이름 B" oninput="syncAll()"
+                            <input type="text" id="n2" value="이름 B" oninput="touchField('n2');syncAll()"
                                 class="flex-1 border-b py-1 outline-none text-sm">
                             <div id="cp2" onclick="openCP('c2')"
                                 class="w-7 h-7 rounded-lg border-2 border-white shadow-md cursor-pointer bg-red-500 shrink-0"></div>
@@ -217,7 +217,7 @@
                 <!-- 출처 카드 -->
                 <div class="card bg-white p-5 rounded-[16px] shadow-sm">
                     <label class="block text-[0.9rem] font-bold text-black mb-3">출처</label>
-                    <input type="text" id="srcIn" value="출처를 입력하세요" oninput="syncAll()"
+                    <input type="text" id="srcIn" value="출처를 입력하세요" oninput="touchField('src');syncAll()"
                         class="w-full border p-2 rounded-lg text-xs outline-none">
                 </div>
 
@@ -243,6 +243,39 @@
                         class="w-full border border-dashed border-gray-300 text-gray-400 text-sm py-2 rounded-lg hover:bg-gray-50">+ 이미지 추가</button>
                 </div>
 
+                <!-- 에디터 값 저장/불러오기 카드 -->
+                <div id="editorFileCard" class="card bg-white p-5 rounded-[16px] shadow-sm">
+                    <label class="block text-[0.9rem] font-bold text-black mb-3">에디터 값 저장 / 불러오기</label>
+                    <div id="editorDownloadWrap" class="mb-2">
+                        <button onclick="downloadEditorJson()"
+                            class="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-sm font-bold py-2.5 rounded-xl hover:bg-gray-50">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            에디터 값 다운로드
+                        </button>
+                    </div>
+                    <div>
+                        <label for="editorUploadInput"
+                            class="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-sm font-bold py-2.5 rounded-xl hover:bg-gray-50 cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            에디터 값 불러오기
+                        </label>
+                        <input type="file" id="editorUploadInput" accept=".json" class="hidden"
+                            onchange="uploadEditorJson(this)">
+                        <p id="editorUploadError" class="hidden text-xs text-red-400 mt-2 text-center"></p>
+                        <p id="editorUploadSuccess" class="hidden text-xs text-green-500 mt-2 text-center">✓ 불러오기 완료!</p>
+                    </div>
+                </div>
+
                 <!-- 이미지 저장 버튼 -->
                 <button onclick="saveImg()"
                     class="w-full bg-black text-white py-4 rounded-xl font-bold shadow-lg mb-10">이미지 저장하기</button>
@@ -252,9 +285,7 @@
 
         <!-- 우측 프리뷰 박스 -->
         <main class="flex-1 overflow-auto bg-[#DCDFE3] flex items-center justify-center no-scrollbar p-10 relative">
-<!-- 공지사항 재열기 버튼 -->
-<button onclick="initOnboarding(); document.getElementById('onboardingModal').style.display='flex'"
-    class="absolute top-5 right-16 z-50 w-10 h-10 rounded-xl bg-white shadow-md flex items-center justify-center hover:bg-gray-50 transition-colors text-gray-500 font-bold text-sm">?</button>
+
             <!-- 채팅 버튼 (오른쪽 상단 고정) -->
             <button id="chatToggleBtn" onclick="toggleChat()"
                 class="absolute top-5 right-5 z-50 w-10 h-10 rounded-xl bg-white shadow-md flex items-center justify-center hover:bg-gray-50 transition-colors">
@@ -317,12 +348,17 @@
     </div><!-- /flex -->
 
     <script>
-        /* 진입 시 인증 체크 — ?room=... 링크 진입자는 통과, 직접 진입자는 토큰 확인 */
+        /* 진입 시 인증 체크
+           - ?room=...  : 링크 공유 진입 → 통과 (Presence로 room 유효성 검증)
+           - ?invite=true : index에서 공유자 선택 진입 → 통과
+           - 그 외       : sessionStorage 토큰 확인, 없으면 index로 리다이렉트
+        */
         (function() {
-            const urlRoom = new URLSearchParams(location.search).get('room');
+            const params  = new URLSearchParams(location.search);
+            const urlRoom = params.get('room');
+            const invite  = params.get('invite');
             const auth    = sessionStorage.getItem('auth');
-            if (!urlRoom && auth !== 'ok') {
-                /* 비밀번호 미인증 + 링크 없음 → index로 리다이렉트 */
+            if (!urlRoom && !invite && auth !== 'ok') {
                 location.replace('index.html');
             }
         })();

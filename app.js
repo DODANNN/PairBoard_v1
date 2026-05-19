@@ -84,78 +84,6 @@ if (USE_SUPABASE) {
     supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
-/* ─── 비밀번호 인증 ──────────────────────────────────────────────── */
-/**
- * SHA-256 해시 변환
- * crypto.subtle은 HTTPS 전용이라 js-sha256 라이브러리 사용 (HTTP 환경 대응)
- * 함수명 충돌 방지 — 내부에서 jsSHA256으로 참조
- */
-async function hashPassword(text) {
-    return window.sha256(text); // js-sha256 CDN 라이브러리 (window.sha256)
-}
-
-/**
- * 비밀번호 모달 초기화
- * - room 파라미터가 있으면 (공유 링크 진입) → 비밀번호 없이 바로 입장 + 공유 버튼 비활성화
- * - room 파라미터가 없으면 → 비밀번호 모달 표시
- * - 세션 동안 한 번 인증하면 재입력 불필요 (sessionStorage 활용)
- */
-async function initPassword() {
-    const urlRoom = new URLSearchParams(location.search).get('room');
-
-    /* 공유 링크로 진입한 경우 — 뷰어 모드 */
-    if (urlRoom) {
-        isViewer = true;
-        disableShareBtn();
-        return; // 비밀번호 체크 없이 바로 입장
-    }
-
-    /* 이미 이 세션에서 인증한 경우 */
-    if (sessionStorage.getItem('auth') === 'ok') return;
-
-    /* 비밀번호 모달 표시 */
-    document.getElementById('passwordModal').style.display = 'flex';
-
-    /* 포커스 */
-    setTimeout(() => document.getElementById('passwordInput').focus(), 100);
-}
-
-async function checkPassword() {
-    const input = document.getElementById('passwordInput').value;
-    if (!input) return;
-
-    const inputHash = await hashPassword(input);
-
-    try {
-        /* Supabase DB에서 해시값 조회 */
-        const { data, error } = await supabaseClient
-            .from('app_config')
-            .select('value')
-            .eq('key', 'password_hash')
-            .single();
-
-        if (error) throw error;
-
-        if (inputHash === data.value) {
-            /* 인증 성공 */
-            sessionStorage.setItem('auth', 'ok');
-            document.getElementById('passwordModal').style.display = 'none';
-        } else {
-            /* 인증 실패 — 흔들림 애니메이션 */
-            const inp = document.getElementById('passwordInput');
-            const err = document.getElementById('passwordError');
-            err.classList.remove('hidden');
-            inp.value = '';
-            inp.classList.add('shake');
-            inp.addEventListener('animationend', () => inp.classList.remove('shake'), { once: true });
-            inp.focus();
-        }
-    } catch (e) {
-        console.error('비밀번호 확인 오류:', e);
-        alert('서버 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-    }
-}
-
 /* 공유 버튼 완전 제거 (뷰어 전용 — disabled는 F12로 우회 가능하므로 DOM에서 제거) */
 function disableShareBtn() {
     const btn = document.getElementById('shareBtn');
@@ -1552,6 +1480,177 @@ function onScaleSlider(val) {
     broadcastState();
 }
 
+/* ─── 에디터 값 다운로드 / 업로드 ──────────────────────────────── */
+
+/* JSON에 포함할 필수 키 목록 */
+const EDITOR_REQUIRED_KEYS = ['n1', 'n2', 'c1', 'c2', 'bg', 'txt', 'src', 'unLink', 'traitLabels', 'sliderVals'];
+
+/**
+ * 현재 에디터 상태를 JSON 파일로 다운로드
+ * ts(타임스탬프)는 제외 — 불러올 때 현재 시각으로 갱신
+ */
+function downloadEditorJson() {
+    const ps = collectPreviewState();
+
+    /* 저장에 필요한 값만 추출 (ts, isUploading, imgUrl 등 제외) */
+    const data = {
+        _version:    1,
+        _savedAt:    new Date().toISOString(),
+        n1:          ps.n1,
+        n2:          ps.n2,
+        c1:          ps.c1,
+        c2:          ps.c2,
+        bg:          ps.bg,
+        txt:         ps.txt,
+        src:         ps.src,
+        unLink:      ps.unLink,
+        traitLabels: ps.traitLabels,
+        sliderVals:  ps.sliderVals,
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `성향체크_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * JSON 파일을 검증하고 에디터에 적용
+ */
+function uploadEditorJson(input) {
+    const file    = input.files[0];
+    const errEl   = document.getElementById('editorUploadError');
+    const succEl  = document.getElementById('editorUploadSuccess');
+    errEl.classList.add('hidden');
+    succEl.classList.add('hidden');
+
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        /* 1. JSON 파싱 */
+        let data;
+        try {
+            data = JSON.parse(e.target.result);
+        } catch {
+            showEditorError('올바른 파일 형식이 아닙니다. (JSON 파싱 실패)');
+            return;
+        }
+
+        /* 2. 필수 키 존재 여부 확인 */
+        const missing = EDITOR_REQUIRED_KEYS.filter(k => !(k in data));
+        if (missing.length > 0) {
+            showEditorError(`필수 항목이 없습니다: ${missing.join(', ')}`);
+            return;
+        }
+
+        /* 3. 값 타입 검증 */
+        if (typeof data.n1 !== 'string' || typeof data.n2 !== 'string') {
+            showEditorError('데이터 형식이 올바르지 않습니다. (이름 값 오류)');
+            return;
+        }
+        if (!Array.isArray(data.traitLabels) || !Array.isArray(data.sliderVals)) {
+            showEditorError('데이터 형식이 올바르지 않습니다. (성향 데이터 오류)');
+            return;
+        }
+        if (data.traitLabels.length !== traits.length || data.sliderVals.length !== traits.length) {
+            showEditorError(`성향 항목 수가 맞지 않습니다. (필요: ${traits.length}개)`);
+            return;
+        }
+        if (!data.c1.startsWith('#') || !data.c2.startsWith('#')) {
+            showEditorError('데이터 형식이 올바르지 않습니다. (색상 값 오류)');
+            return;
+        }
+
+        /* 4. 에디터에 값 적용 */
+        applyEditorJson(data);
+
+        /* 성공 메시지 */
+        succEl.classList.remove('hidden');
+        setTimeout(() => succEl.classList.add('hidden'), 3000);
+
+        /* input 초기화 (같은 파일 재업로드 가능하도록) */
+        input.value = '';
+    };
+    reader.readAsText(file);
+}
+
+function showEditorError(msg) {
+    const errEl = document.getElementById('editorUploadError');
+    errEl.textContent = msg;
+    errEl.classList.remove('hidden');
+    document.getElementById('editorUploadInput').value = '';
+}
+
+/**
+ * 검증된 JSON 데이터를 에디터 + 프리뷰에 적용
+ * 불러온 값은 현재 시각으로 타임스탬프 갱신 (내가 직접 입력한 것처럼 처리)
+ */
+function applyEditorJson(data) {
+    const now = Date.now();
+
+    /* 이름 */
+    document.getElementById('n1').value = data.n1;
+    document.getElementById('n2').value = data.n2;
+    fieldTs.n1 = now; fieldTs.n2 = now;
+
+    /* 출처 */
+    document.getElementById('srcIn').value = data.src ?? '';
+    fieldTs.src = now;
+
+    /* 컬러 연동 해제 */
+    document.getElementById('unLinkColor').checked = data.unLink ?? false;
+    fieldTs.unLink = now;
+
+    /* 색상 */
+    state.c1 = data.c1; state.c2 = data.c2;
+    state.bg = data.bg; state.txt = data.txt;
+    document.getElementById('c1').value = data.c1;
+    document.getElementById('c2').value = data.c2;
+    document.getElementById('bgCol').value  = data.bg;
+    document.getElementById('txtCol').value = data.txt;
+    document.getElementById('cp1').style.backgroundColor  = data.c1;
+    document.getElementById('cp2').style.backgroundColor  = data.c2;
+    document.getElementById('cpBg').style.backgroundColor  = data.bg;
+    document.getElementById('cpText').style.backgroundColor = data.txt;
+    document.getElementById('captureArea').style.backgroundColor = data.bg;
+    fieldTs.c1 = now; fieldTs.c2 = now;
+    fieldTs.bg = now; fieldTs.txt = now;
+
+    /* 성향 이름 + 슬라이더 */
+    traits.forEach((_, i) => {
+        const label  = data.traitLabels[i] ?? traits[i];
+        const sliders = data.sliderVals[i] ?? [50, 50];
+
+        const input = document.getElementById(`trait-in-${i}`);
+        if (input) input.value = label;
+        fieldTs.traitLabels[i] = now;
+
+        for (let p = 1; p <= 2; p++) {
+            const slider = document.getElementById(`range-${i}-${p}`);
+            if (slider) slider.value = sliders[p-1] ?? 50;
+            fieldTs.sliderVals[i][p-1] = now;
+        }
+    });
+
+    /* 프리뷰 전체 갱신 + broadcast */
+    syncAll();
+}
+
+/**
+ * invite 파라미터 진입 시 다운로드 버튼 숨기기
+ */
+function initEditorFileCard() {
+    const invite = new URLSearchParams(location.search).get('invite');
+    if (invite === 'true') {
+        const downloadWrap = document.getElementById('editorDownloadWrap');
+        if (downloadWrap) downloadWrap.style.display = 'none';
+    }
+}
+
 /* ─── 이미지 저장 ────────────────────────────────────────────────── */
 async function saveImg() {
     const area    = document.getElementById('captureArea');
@@ -1650,6 +1749,7 @@ function init() {
     syncAll();
     setupImgInteract();
     initOnboarding();
+    initEditorFileCard(); // invite 파라미터에 따라 다운로드 버튼 표시 여부 결정
     autoConnectFromURL(); // URL room 파라미터 자동 연결
 }
 
