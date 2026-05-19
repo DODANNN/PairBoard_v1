@@ -1516,7 +1516,7 @@ function downloadEditorJson() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `성향체크_${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
