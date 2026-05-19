@@ -1492,7 +1492,7 @@ const EDITOR_REQUIRED_KEYS = ['n1', 'n2', 'c1', 'c2', 'bg', 'txt', 'src', 'unLin
 function downloadEditorJson() {
     const ps = collectPreviewState();
 
-    /* 저장에 필요한 값만 추출 (ts, isUploading, imgUrl 등 제외) */
+    /* 저장에 필요한 값 추출 (ts, isUploading 제외) */
     const data = {
         _version:    1,
         _savedAt:    new Date().toISOString(),
@@ -1506,6 +1506,10 @@ function downloadEditorJson() {
         unLink:      ps.unLink,
         traitLabels: ps.traitLabels,
         sliderVals:  ps.sliderVals,
+        imgUrl:      ps.imgUrl       ?? null,
+        imgTransform: ps.imgTransform ?? null,
+        stickers:    ps.stickers     ?? [],
+        imgStickers: ps.imgStickers  ?? [],
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1636,6 +1640,127 @@ function applyEditorJson(data) {
         }
     });
 
+    /* 메인 이미지 복원 (Storage URL이 있는 경우) */
+    if (data.imgUrl) {
+        const img = document.getElementById('targetImg');
+        img.setAttribute('crossorigin', 'anonymous');
+        img.setAttribute('data-storage-url', data.imgUrl);
+        img.onload = () => {
+            const ratio = img.naturalWidth / img.naturalHeight;
+            img.style.height = ratio > 1 ? '100%' : 'auto';
+            img.style.width  = ratio > 1 ? 'auto' : '100%';
+            if (data.imgTransform) applyImgTransform(img, data.imgTransform);
+            img.classList.remove('hidden');
+            document.getElementById('delBtn').classList.remove('hidden');
+            const wrap = document.getElementById('imgScaleWrap');
+            if (wrap) {
+                wrap.classList.remove('hidden');
+                wrap.classList.add('flex');
+                const scale = data.imgTransform?.scale ?? 1;
+                document.getElementById('imgScaleSlider').value = Math.round(scale * 100);
+            }
+        };
+        img.src = data.imgUrl;
+    }
+
+    /* 텍스트 스티커 복원 */
+    if (Array.isArray(data.stickers) && data.stickers.length > 0) {
+        /* 기존 스티커 모두 제거 */
+        document.querySelectorAll('[id^="stickerrow"]').forEach(el => el.remove());
+        document.querySelectorAll('[id^="stickerel"]').forEach(el => el.remove());
+        stickerCount = 0;
+
+        data.stickers.forEach(s => {
+            stickerCount++;
+            const id = stickerCount;
+
+            /* 에디터 행 생성 — addSticker() 로직 재활용 */
+            addSticker();
+
+            /* 텍스트 설정 */
+            const input = document.getElementById(`stickerin${id}`);
+            if (input) { input.value = s.text || ''; updateSticker(id); }
+
+            /* 색상 설정 */
+            const scbg = document.getElementById(`scbg${id}`);
+            const scbd = document.getElementById(`scbd${id}`);
+            const sctx = document.getElementById(`sctx${id}`);
+            if (scbg) scbg.value = s.bg ?? '#ffffff';
+            if (scbd) scbd.value = s.bd ?? '#e5e7eb';
+            if (sctx) sctx.value = s.tx ?? '#111111';
+
+            /* 모양 설정 */
+            setStickerShape(id, s.shape ?? 'round');
+
+            /* 투명도 */
+            if (s.shape === 'semi') {
+                const opIn = document.getElementById(`sopacity${id}`);
+                if (opIn) { opIn.value = s.opacity ?? 50; }
+            }
+
+            /* 위치/각도 */
+            const el = document.getElementById(`stickerel${id}`);
+            if (el) {
+                el.style.left      = `${s.x ?? 80}px`;
+                el.style.top       = `${s.y ?? 80}px`;
+                el.style.transform = `rotate(${s.angle ?? 0}deg)`;
+                el.setAttribute('data-x',     s.x ?? 80);
+                el.setAttribute('data-y',     s.y ?? 80);
+                el.setAttribute('data-angle', s.angle ?? 0);
+            }
+
+            updateStickerStyle(id);
+        });
+        /* stickerCount가 addSticker()로 인해 중복 증가하는 것 방지 */
+        stickerCount = data.stickers.length;
+    }
+
+    /* 이미지 스티커 복원 */
+    if (Array.isArray(data.imgStickers) && data.imgStickers.length > 0) {
+        document.querySelectorAll('[id^="imgstickerrow"]').forEach(el => el.remove());
+        document.querySelectorAll('[id^="imgstickerel"]').forEach(el => el.remove());
+        imgStickerCount = 0;
+
+        data.imgStickers.forEach(s => {
+            imgStickerCount++;
+            const id = imgStickerCount;
+            addImgSticker();
+
+            const el = document.getElementById(`imgstickerel${id}`);
+            if (el && s.url) {
+                el.setAttribute('crossorigin', 'anonymous');
+                el.setAttribute('data-storage-url', s.url);
+                el.style.left      = `${s.x ?? 100}px`;
+                el.style.top       = `${s.y ?? 100}px`;
+                el.style.transform = `rotate(${s.angle ?? 0}deg)`;
+                el.style.width     = `${s.size ?? 80}px`;
+                el.style.height    = 'auto';
+                el.style.display   = 'block';
+                el.setAttribute('data-x',     s.x ?? 100);
+                el.setAttribute('data-y',     s.y ?? 100);
+                el.setAttribute('data-angle', s.angle ?? 0);
+                el.src = s.url;
+
+                /* 크기 슬라이더 업데이트 */
+                const sizeEl = document.getElementById(`issize${id}`);
+                if (sizeEl) sizeEl.value = s.size ?? 80;
+
+                /* 썸네일 미리보기 */
+                const wrap = document.getElementById(`ispreviewwrap${id}`);
+                if (wrap) {
+                    wrap.innerHTML = '';
+                    wrap.className = '';
+                    wrap.style.cssText = 'width:48px; height:48px; flex-shrink:0;';
+                    const preview = document.createElement('img');
+                    preview.src       = s.url;
+                    preview.className = 'imgsticker-preview';
+                    wrap.appendChild(preview);
+                }
+            }
+        });
+        imgStickerCount = data.imgStickers.length;
+    }
+
     /* 프리뷰 전체 갱신 + broadcast */
     syncAll();
 }
@@ -1646,8 +1771,11 @@ function applyEditorJson(data) {
 function initEditorFileCard() {
     const invite = new URLSearchParams(location.search).get('invite');
     if (invite === 'true') {
+        /* 다운로드 버튼 숨기기 */
         const downloadWrap = document.getElementById('editorDownloadWrap');
         if (downloadWrap) downloadWrap.style.display = 'none';
+        /* 공유 버튼 DOM에서 완전 제거 */
+        disableShareBtn();
     }
 }
 
