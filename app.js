@@ -1807,7 +1807,7 @@ async function saveImg() {
                     el.style.lineHeight = '1';
                 });
                 /* 텍스트 스티커 보정 */
-                clonedDoc.querySelectorAll('[id^="stickerel"]').forEach(st => {
+                clonedDoc.querySelectorAll('[id^="stickerel"], [data-remote-sticker]').forEach(st => {
                     st.style.display         = 'flex';
                     st.style.alignItems      = 'center';
                     st.style.justifyContent  = 'center';
